@@ -8,6 +8,13 @@
       "when": 1761327615521,
       "tag": "0000_aspiring_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788404296722,
+      "tag": "0001_add_category_and_qr_pool",
+      "breakpoints": true
     }
   ]
 }

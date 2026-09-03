@@ -19,6 +19,19 @@ export const books = sqliteTable("books", {
   description: text().notNull(),
   author: text().notNull(),
   imageUrl: text("image_url"),
+  category: text(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Pool of pre-printed physical QR stickers (COPY-XXXXXX). A code is
+// `available` until it's tagged to a book copy, at which point it flips to
+// unavailable; removing that copy flips it back to available so the sticker
+// can be reused on a different physical book.
+export const qrCodes = sqliteTable("qr_codes", {
+  code: text().primaryKey(),
+  available: integer({ mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

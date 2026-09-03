@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull, like, max, or } from "drizzle-orm";
 import { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
-import { bookCopies, books, loans, locations } from "../db/schema";
+import { bookCopies, books, loans, locations, qrCodes } from "../db/schema";
 
 // Type for database with schema
 export type Database = DrizzleD1Database<typeof schema>;
@@ -364,6 +364,17 @@ export async function addBookCopy(
       status: "available",
     });
 
+    // Flip the QR sticker to unavailable in the pool table so it isn't
+    // handed out again for a different book. Upsert in case this code
+    // predates the qr_codes backfill and isn't in the pool yet.
+    await db
+      .insert(qrCodes)
+      .values({ code: qrCodeId, available: false })
+      .onConflictDoUpdate({
+        target: qrCodes.code,
+        set: { available: false },
+      });
+
     return {
       success: true,
       copy: { qrCodeId, copyNumber: nextCopyNumber },
@@ -371,5 +382,52 @@ export async function addBookCopy(
   } catch (error) {
     console.error("Failed to add book copy:", error);
     return { success: false, error: "Failed to add book copy" };
+  }
+}
+
+/**
+ * Remove a book copy (e.g. lost/damaged sticker, or as part of removing the
+ * whole book from the catalog). Frees the QR sticker back to the pool so it
+ * can be reused on a different physical book. Blocks removal while there's
+ * an active (unreturned) loan against this copy, since that would silently
+ * orphan a book that's still physically checked out.
+ */
+export async function removeBookCopy(
+  db: Database,
+  qrCodeId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const activeLoan = await db.query.loans.findFirst({
+    where: and(eq(loans.qrCodeId, qrCodeId), isNull(loans.returnedAt)),
+  });
+
+  if (activeLoan) {
+    return {
+      success: false,
+      error:
+        "This copy has an active loan - it must be returned before the copy can be removed.",
+    };
+  }
+
+  try {
+    // No active loan (checked above), but there may be returned/historical
+    // loan rows referencing this copy - the loans table has a foreign key on
+    // qr_code_id, so those must go before the copy row can be deleted.
+    // This does mean historical borrow records for this specific copy are
+    // lost, not just the copy itself.
+    await db.delete(loans).where(eq(loans.qrCodeId, qrCodeId));
+    await db.delete(bookCopies).where(eq(bookCopies.qrCodeId, qrCodeId));
+
+    await db
+      .insert(qrCodes)
+      .values({ code: qrCodeId, available: true })
+      .onConflictDoUpdate({
+        target: qrCodes.code,
+        set: { available: true },
+      });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to remove book copy:", error);
+    return { success: false, error: "Failed to remove book copy" };
   }
 }

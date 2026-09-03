@@ -74,7 +74,7 @@ Other useful scripts: `bun run test` (Vitest), `bun run lint` (ESLint), `bun run
 
 ## Admin Usage
 
-Two admin-only pages live at `/admin/add-book` and `/admin/manage-books`. Neither is gated behind Telegram admin auth (unlike the bot/mini-app routes) - they're meant to be run locally by whoever is curating the catalog, via `bun run dev`.
+Three admin-only pages live at `/admin/add-book`, `/admin/manage-books` and `/admin/add-covers`. None is gated behind Telegram admin auth (unlike the bot/mini-app routes) - they're meant to be run locally by whoever is curating the catalog, via `bun run dev`.
 
 ### 1. Running the program
 
@@ -98,7 +98,7 @@ Scan (with a USB barcode scanner) or type an ISBN, hit Enter:
 1. The app checks for an existing book with that ISBN (to avoid duplicates) and looks it up on Google Books.
 2. Title, author and description come back pre-filled and editable; pick a category from the dropdown.
 3. Saving inserts exactly one new row into `books` - it never touches any existing book, copy, loan or location.
-4. A cover photo is optional at this point. Attach one straight from this device (camera on mobile, file picker on desktop), or skip it and hand off to a phone: a QR code is shown after saving that opens `/admin/add-book/cover/:isbn` on whatever scans it.
+4. A cover photo is optional at this point. Attach one straight from this device (camera on mobile, file picker on desktop), skip it and hand off to a phone (a QR code is shown after saving that opens `/admin/add-book/cover/:isbn` on whatever scans it), or leave it for later and pick it up in bulk from `/admin/add-covers`.
 
 **`/admin/add-book/cover/:isbn` - Add Cover Photo**
 
@@ -114,6 +114,24 @@ Search by title/ISBN and filter by category or location; select rows to batch-se
 - Remove a copy (frees its QR sticker back to the pool) or remove the whole book (removes all of its copies first). Both are blocked while any affected copy has an active, unreturned loan.
 
 Physical copies can also be linked the other way - via the Telegram mini app, by scanning a QR sticker while viewing a book - which is the main path once the library is up and running; `/admin/manage-books` is generally for corrections and bulk cleanup.
+
+An "Add covers" button in the header links to `/admin/add-covers`.
+
+**`/admin/add-covers` - Add Covers**
+
+The landing page lists every book currently missing a cover, oldest-added first, as a grid of cards. This is the catch-up page for books that were saved without a cover photo (skipped entirely, or handed off to a phone that never got scanned) - it needs no phone, no QR code and no LAN access, since it runs entirely on whatever device already has `bun run dev` open.
+
+Per book, one at a time:
+
+- **Add** (no cover yet) or **Replace** (cover already set) opens the device's file picker (or camera, on mobile) for a single photo, resized and re-encoded to webp in the browser exactly like the other cover-upload paths, then uploaded to that one book.
+- **Remove** clears that book's cover back to "no cover" (`image_url` set to `null`). The image file itself is left in the GitHub images repo, unreferenced but harmless - nothing is deleted remotely.
+
+For adding many covers at once - e.g. after a batch scanning session with CamScanner, which turns a stack of covers into a single multi-page PDF:
+
+1. Tick the checkbox on at least two coverless book cards (selection is disabled once a card already has a cover). This enables the **Batch upload (N)** button.
+2. Click it and upload the PDF. Every page is rendered client-side (no server round-trip) and, by default, auto-aligned in order: the PDF's first page to the first selected book, the second page to the second, and so on - matching the assumption that you scan/name covers in the same sequence you scanned the books, so no filename-to-ISBN naming is needed.
+3. If the page count doesn't match the book count, or a page just landed on the wrong book, drag pages between book rows (and an "unused pages" tray) to fix the pairing before confirming - nothing is uploaded until you click Confirm.
+4. Confirming uploads each paired page through the same per-book cover endpoint, one at a time, with a progress bar; any individual failures are reported without blocking the rest.
 
 ### 3. Exporting the database
 
@@ -151,7 +169,8 @@ A copy's real-time availability is derived from whether it has an active loan (`
 | Action | `books` | `book_copies` | `qr_codes` | `loans` | Guard |
 | --- | --- | --- | --- | --- | --- |
 | Add a new book (`/admin/add-book`) | Inserts 1 row | - | - | - | Rejected if the ISBN already exists. |
-| Upload/replace a cover | Updates `image_url` on that one row | - | - | - | - |
+| Upload/replace a cover (from `/admin/add-book`, its QR-code phone handoff, or `/admin/add-covers`, one at a time or in batch) | Updates `image_url` on that one row | - | - | - | - |
+| Remove a cover (`/admin/add-covers` "Remove") | Sets `image_url` back to `null` on that one row | - | - | - | - |
 | Edit book details (Manage Books) | Updates `title`/`author`/`description`/`category` | - | - | - | - |
 | Batch-set category (Manage Books) | Updates `category` on the selected rows | - | - | - | - |
 | Add / link a physical copy (Manage Books "+ Add copy", or scanning a QR sticker in the Telegram mini app) | - | Inserts 1 row, `status = "available"` | Upserts that code to `available = false` | - | Rejected if the QR code is already tagged to another copy. |

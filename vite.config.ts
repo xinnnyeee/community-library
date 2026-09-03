@@ -17,7 +17,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      allowedHosts: [env.DEV_HOST!],
+      // Bind to 0.0.0.0 (not just localhost) so phones on the same Wi-Fi can
+      // reach the dev server, e.g. to use the camera on /admin/add-book.
+      host: true,
+      // DEV_HOST (used for the Cloudflare Tunnel / Telegram bot setup) stays
+      // allowed when set; otherwise allow any host so LAN IP access works.
+      allowedHosts: env.DEV_HOST ? [env.DEV_HOST] : true,
     },
   };
 });

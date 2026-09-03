@@ -11,10 +11,14 @@
     "test:watch": "vitest",
     "preview": "bun run build && vite preview",
     "deploy": "bun run build && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "export-books-csv": "bun run scripts/export-books-csv.ts",
+    "backfill-qr-codes": "bun run scripts/backfill-qr-codes.ts",
+    "export-all-csv": "bun run scripts/export-all-csv.ts"
   },
   "dependencies": {
     "@grammyjs/commands": "^1.2.0",
+    "@hono/zod-validator": "^0.6.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -55,11 +59,11 @@
     "embla-carousel-react": "^8.6.0",
     "grammy": "^1.38.3",
     "hono": "^4.10.1",
-    "@hono/zod-validator": "^0.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "next-themes": "^0.4.6",
+    "qrcode.react": "^4.2.0",
     "react": "^19.1.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.1.1",

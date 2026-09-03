@@ -11,6 +11,9 @@ declare namespace Cloudflare {
 		ADMIN_GROUP_ID: string;
 		MINIAPP_URL: string;
 		DATABASE: D1Database;
+		GITHUB_TOKEN?: string;
+		GITHUB_IMAGES_REPO?: string;
+		GOOGLE_BOOKS_API_KEY?: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

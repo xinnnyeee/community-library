@@ -1,6 +1,6 @@
 # Community Library
 
-A community-driven library for students and staff at NUSC. Members browse, borrow and return physical books via a Telegram bot / mini app; admins add books, print QR stickers for physical copies, and manage the catalog through a couple of local-only web pages.
+A community-driven library for students and staff at NUSC. Members browse, borrow and return physical books via a Telegram bot / mini app; admins add books, print QR stickers for physical copies, and manage the catalog through a few local-only web pages.
 
 **Stack:** React + Vite + Tailwind + shadcn/ui on the frontend, [Hono](https://hono.dev) on Cloudflare Workers for the backend, Cloudflare D1 (SQLite) via [Drizzle ORM](https://orm.drizzle.team) for the database, and [grammY](https://grammy.dev) for the Telegram bot.
 
@@ -31,7 +31,7 @@ GITHUB_IMAGES_REPO=      # e.g. "your-username/community-library-images"
 GOOGLE_BOOKS_API_KEY=    # Used by the admin "add book" ISBN lookup
 ```
 
-`GITHUB_TOKEN` / `GITHUB_IMAGES_REPO` / `GOOGLE_BOOKS_API_KEY` are only needed for the admin add-book flow (cover upload + ISBN lookup) - everything else runs fine without them.
+`GITHUB_TOKEN` / `GITHUB_IMAGES_REPO` are only needed for cover uploads on `/admin/add-covers`; `GOOGLE_BOOKS_API_KEY` is only needed for the admin add-book ISBN lookup - everything else runs fine without them.
 
 ### 3. Set up the local database
 
@@ -55,7 +55,7 @@ For bulk-importing a batch of scanned books (rather than adding them one at a ti
 bun run dev
 ```
 
-The dev server binds to `0.0.0.0` (not just `localhost`), so it's reachable from other devices on the same Wi-Fi - this is what lets you open `/admin/add-book` on a laptop and use a phone's camera for the cover-photo handoff. If you're using a Cloudflare Tunnel for local Telegram bot development, set `DEV_HOST` in a `.env` file so Vite allows that host too.
+The dev server binds to `0.0.0.0` (not just `localhost`), so it's reachable from other devices on the same Wi-Fi - handy for testing the Telegram mini app on a phone during development. If you're using a Cloudflare Tunnel for local Telegram bot development, set `DEV_HOST` in a `.env` file so Vite allows that host too.
 
 Other useful scripts: `bun run test` (Vitest), `bun run lint` (ESLint), `bun run build` (typecheck + production build), `bun run deploy` (build + `wrangler deploy`).
 
@@ -87,7 +87,7 @@ bunx wrangler d1 migrations apply community-library-db --local
 bun run dev
 ```
 
-Then open `http://localhost:5173/admin/add-book` or `/admin/manage-books` (or the machine's LAN IP from a phone, for the cover-photo handoff).
+Then open `http://localhost:5173/admin/add-book`, `/admin/manage-books` or `/admin/add-covers` - all three run entirely on this one device, no phone or LAN access needed.
 
 ### 2. Admin pages
 
@@ -98,11 +98,7 @@ Scan (with a USB barcode scanner) or type an ISBN, hit Enter:
 1. The app checks for an existing book with that ISBN (to avoid duplicates) and looks it up on Google Books.
 2. Title, author and description come back pre-filled and editable; pick a category from the dropdown.
 3. Saving inserts exactly one new row into `books` - it never touches any existing book, copy, loan or location.
-4. A cover photo is optional at this point. Attach one straight from this device (camera on mobile, file picker on desktop), skip it and hand off to a phone (a QR code is shown after saving that opens `/admin/add-book/cover/:isbn` on whatever scans it), or leave it for later and pick it up in bulk from `/admin/add-covers`.
-
-**`/admin/add-book/cover/:isbn` - Add Cover Photo**
-
-The phone-side page reached by scanning that QR code. Lets you snap a photo with the phone's camera and upload it straight to that one book (resized and re-encoded to webp in the browser first). Uploading again later replaces the existing cover.
+4. Saving never asks for a cover - it saves the book and immediately resets the form, focused and ready for the next scan, so a stack of books can be scanned in back-to-back. Covers are added afterwards, one at a time or in bulk, from `/admin/add-covers`.
 
 **`/admin/manage-books` - Manage Books**
 
@@ -169,7 +165,7 @@ A copy's real-time availability is derived from whether it has an active loan (`
 | Action | `books` | `book_copies` | `qr_codes` | `loans` | Guard |
 | --- | --- | --- | --- | --- | --- |
 | Add a new book (`/admin/add-book`) | Inserts 1 row | - | - | - | Rejected if the ISBN already exists. |
-| Upload/replace a cover (from `/admin/add-book`, its QR-code phone handoff, or `/admin/add-covers`, one at a time or in batch) | Updates `image_url` on that one row | - | - | - | - |
+| Upload/replace a cover (from `/admin/add-covers`, one at a time or in batch) | Updates `image_url` on that one row | - | - | - | - |
 | Remove a cover (`/admin/add-covers` "Remove") | Sets `image_url` back to `null` on that one row | - | - | - | - |
 | Edit book details (Manage Books) | Updates `title`/`author`/`description`/`category` | - | - | - | - |
 | Batch-set category (Manage Books) | Updates `category` on the selected rows | - | - | - | - |

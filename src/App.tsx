@@ -10,7 +10,6 @@ import { createBrowserRouter, RouterProvider } from "react-router";
 
 const MiniApp = lazy(() => import("@/routes/MiniApp"));
 const AddBook = lazy(() => import("@/routes/AddBook"));
-const AddBookCover = lazy(() => import("@/routes/AddBookCover"));
 const ManageBooks = lazy(() => import("@/routes/ManageBooks"));
 const AddCovers = lazy(() => import("@/routes/AddCovers"));
 
@@ -84,10 +83,6 @@ const router = createBrowserRouter([
   {
     path: "/admin/add-book",
     Component: AddBook,
-  },
-  {
-    path: "/admin/add-book/cover/:isbn",
-    Component: AddBookCover,
   },
   {
     path: "/admin/manage-books",

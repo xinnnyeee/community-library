@@ -32,3 +32,6 @@ dist-ssr
 
 temp/
 output/
+
+# Generated DB snapshots from scripts/export-*.ts
+exports/

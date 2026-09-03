@@ -9,6 +9,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider } from "react-router";
 
 const MiniApp = lazy(() => import("@/routes/MiniApp"));
+const AddBook = lazy(() => import("@/routes/AddBook"));
+const AddBookCover = lazy(() => import("@/routes/AddBookCover"));
+const ManageBooks = lazy(() => import("@/routes/ManageBooks"));
 
 // React Query client for data fetching
 const queryClient = new QueryClient({
@@ -76,6 +79,18 @@ const router = createBrowserRouter([
   {
     path: "/mini-app",
     Component: MiniApp,
+  },
+  {
+    path: "/admin/add-book",
+    Component: AddBook,
+  },
+  {
+    path: "/admin/add-book/cover/:isbn",
+    Component: AddBookCover,
+  },
+  {
+    path: "/admin/manage-books",
+    Component: ManageBooks,
   },
 ]);
 

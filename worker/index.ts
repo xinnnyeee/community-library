@@ -3,6 +3,8 @@ import { eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { botApp } from "./bot.ts";
+import { adminBooks } from "./routes/admin-books.ts";
+import { manageBooks } from "./routes/manage-books.ts";
 import * as schema from "./db/schema.ts";
 import { miniApp } from "./routes/mini-app.ts";
 
@@ -84,7 +86,9 @@ const route = app
     return c.json({ book, copy });
   })
   .route("/bot", botApp)
-  .route("/miniapp", miniApp);
+  .route("/miniapp", miniApp)
+  .route("/admin/books", adminBooks)
+  .route("/admin/manage-books", manageBooks);
 
 export default app;
 // For type inference in the client

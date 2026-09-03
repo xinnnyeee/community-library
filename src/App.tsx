@@ -12,6 +12,7 @@ const MiniApp = lazy(() => import("@/routes/MiniApp"));
 const AddBook = lazy(() => import("@/routes/AddBook"));
 const AddBookCover = lazy(() => import("@/routes/AddBookCover"));
 const ManageBooks = lazy(() => import("@/routes/ManageBooks"));
+const AddCovers = lazy(() => import("@/routes/AddCovers"));
 
 // React Query client for data fetching
 const queryClient = new QueryClient({
@@ -91,6 +92,10 @@ const router = createBrowserRouter([
   {
     path: "/admin/manage-books",
     Component: ManageBooks,
+  },
+  {
+    path: "/admin/add-covers",
+    Component: AddCovers,
   },
 ]);
 

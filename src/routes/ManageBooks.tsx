@@ -234,9 +234,14 @@ export default function ManageBooks() {
       <Toaster />
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Manage Books</h1>
-        <Button asChild variant="outline">
-          <Link to="/admin/add-book">Add new book</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link to="/admin/add-covers">Add covers</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/admin/add-book">Add new book</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-3">

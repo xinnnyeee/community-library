@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
+import { asc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { normalizeISBN } from "../../scripts/lib/isbn";
@@ -12,9 +12,12 @@ import { lookupGoogleBooks } from "../lib/google-books";
 /**
  * Admin "add new book" flow: scan ISBN -> Google Books lookup -> save -> cover.
  *
- * This route only ever INSERTS new rows into `books`, with one narrow exception:
- * POST /:isbn/cover, which sets/replaces that one book's own image_url right
- * after it was created. It never touches any other book, copy, loan, or location.
+ * This route only ever INSERTS new rows into `books`, with a few narrow
+ * exceptions that only ever touch a single book's own `image_url`: POST
+ * /:isbn/cover (set/replace, used right after creating a book and by the
+ * /admin/add-covers page) and DELETE /:isbn/cover (clear it back to null).
+ * GET /coverless is read-only, listing books missing a cover for that same
+ * page. None of these ever touch any other book, copy, loan, or location.
  *
  * Not gated behind Telegram admin auth (unlike the mini-app routes) - this is
  * meant to be run locally by whoever is scanning in new books, on `bun run dev`.
@@ -127,6 +130,24 @@ export const adminBooks = new Hono<{ Bindings: Env }>()
       return c.json({ book });
     },
   )
+  // Books with no cover yet, oldest-added first - the /admin/add-covers
+  // page's landing list. Deliberately lighter than manage-books' listing
+  // (no copies/loans join) since this only needs id/isbn/title/author/imageUrl.
+  .get("/coverless", async (c) => {
+    const db = drizzle(c.env.DATABASE, { schema });
+    const books = await db.query.books.findMany({
+      where: isNull(schema.books.imageUrl),
+      orderBy: [asc(schema.books.id)],
+      columns: {
+        id: true,
+        isbn: true,
+        title: true,
+        author: true,
+        imageUrl: true,
+      },
+    });
+    return c.json({ books });
+  })
   // Used by the phone-side cover page to show which book it's uploading a cover for.
   .get("/:isbn", async (c) => {
     const isbn = normalizeISBN(c.req.param("isbn"));
@@ -184,7 +205,31 @@ export const adminBooks = new Hono<{ Bindings: Env }>()
 
       return c.json({ book: updated });
     },
-  );
+  )
+  // Clears a book's cover back to null (used by /admin/add-covers' "Remove"
+  // action). Only ever nulls out image_url on this one book - the cover
+  // file itself is left in the GitHub images repo, unreferenced but
+  // harmless, the same way removing a book copy doesn't delete anything
+  // remotely either.
+  .delete("/:isbn/cover", async (c) => {
+    const isbn = normalizeISBN(c.req.param("isbn"));
+    if (!isbn) {
+      return c.json({ error: "That doesn't look like a valid ISBN-10/13" }, 400);
+    }
+
+    const db = drizzle(c.env.DATABASE, { schema });
+    const [updated] = await db
+      .update(schema.books)
+      .set({ imageUrl: null })
+      .where(eq(schema.books.isbn, isbn))
+      .returning();
+
+    if (!updated) {
+      return c.json({ error: "No book with this ISBN" }, 404);
+    }
+
+    return c.json({ book: updated });
+  });
 
 /**
  * Uploads a cover file to the GitHub images repo and returns the resulting

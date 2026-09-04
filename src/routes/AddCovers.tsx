@@ -576,7 +576,18 @@ function BatchUploadDialog({
             and the unused-pages tray + footer stay pinned at the bottom,
             always visible and always a valid drop target without having to
             scroll down to reach it. */}
-        <DialogContent className="flex h-[85vh] max-w-2xl flex-col overflow-hidden">
+        <DialogContent
+          className="flex h-[85vh] max-w-2xl flex-col overflow-hidden"
+          onPointerDownOutside={(e) => {
+            // The preview overlay renders outside DialogContent (so it can
+            // cover the whole viewport, not just the dialog), which makes
+            // Radix treat a click on it - even just on its close button -
+            // as an "outside" interaction that closes this whole dialog.
+            // Swallow that while the preview is up so closing the preview
+            // doesn't also close the batch-upload dialog underneath it.
+            if (previewImage) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Batch upload covers</DialogTitle>
           </DialogHeader>

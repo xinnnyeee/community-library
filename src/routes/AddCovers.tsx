@@ -41,11 +41,17 @@ type CoverlessBook = {
 
 const booksApi = client.api.admin.books;
 
+// Keeps each page's grid to a size that roughly matches one batch-scanned
+// stack of covers, and keeps "select all on this page" a meaningful action
+// rather than selecting hundreds of books at once.
+const PAGE_SIZE = 15;
+
 export default function AddCovers() {
   const [books, setBooks] = useState<CoverlessBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
+  const [page, setPage] = useState(0);
   // Freshly-uploaded cover previews, keyed by isbn - lets a card show its
   // new image immediately without waiting on a refetch (the server list
   // won't include it any more, since it's no longer coverless).
@@ -60,6 +66,7 @@ export default function AddCovers() {
       const data = await res.json();
       setBooks(data.books);
       setSelected(new Set());
+      setPage(0);
     } catch {
       toast.error("Couldn't reach the server. Is `bun run dev` running?");
     } finally {
@@ -132,6 +139,34 @@ export default function AddCovers() {
 
   const selectedBooks = books.filter((b) => selected.has(b.isbn));
 
+  const totalPages = Math.max(1, Math.ceil(books.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pagedBooks = books.slice(
+    currentPage * PAGE_SIZE,
+    currentPage * PAGE_SIZE + PAGE_SIZE,
+  );
+  // "Select all" only ever acts on books shown on the current page, and
+  // only the ones actually selectable (a card with a freshly-uploaded local
+  // preview has its checkbox disabled, same as CoverCard below).
+  const pageSelectableIsbns = pagedBooks
+    .filter((b) => !localPreviews[b.isbn])
+    .map((b) => b.isbn);
+  const allPageSelected =
+    pageSelectableIsbns.length > 0 &&
+    pageSelectableIsbns.every((isbn) => selected.has(isbn));
+
+  function toggleSelectAllOnPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const isbn of pageSelectableIsbns) next.delete(isbn);
+      } else {
+        for (const isbn of pageSelectableIsbns) next.add(isbn);
+      }
+      return next;
+    });
+  }
+
   return (
     <div className="mx-auto max-w-6xl p-6">
       <Toaster />
@@ -166,19 +201,60 @@ export default function AddCovers() {
           Every book has a cover - nothing to do here.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {books.map((book) => (
-            <CoverCard
-              key={book.isbn}
-              book={book}
-              previewUrl={localPreviews[book.isbn]}
-              selected={selected.has(book.isbn)}
-              onToggleSelected={() => toggleSelected(book.isbn)}
-              onUpload={(file) => uploadCover(book.isbn, file)}
-              onRemove={() => removeCover(book.isbn)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div
+              className="flex cursor-pointer items-center gap-2 text-sm select-none"
+              onClick={toggleSelectAllOnPage}
+            >
+              <Checkbox
+                checked={allPageSelected}
+                disabled={pageSelectableIsbns.length === 0}
+                onCheckedChange={toggleSelectAllOnPage}
+                onClick={(e) => e.stopPropagation()}
+              />
+              Select all on this page ({pageSelectableIsbns.length})
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2 text-sm">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage(currentPage - 1)}
+                  disabled={currentPage === 0}
+                >
+                  Previous
+                </Button>
+                <span className="text-muted-foreground">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage(currentPage + 1)}
+                  disabled={currentPage >= totalPages - 1}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {pagedBooks.map((book) => (
+              <CoverCard
+                key={book.isbn}
+                book={book}
+                previewUrl={localPreviews[book.isbn]}
+                selected={selected.has(book.isbn)}
+                onToggleSelected={() => toggleSelected(book.isbn)}
+                onUpload={(file) => uploadCover(book.isbn, file)}
+                onRemove={() => removeCover(book.isbn)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {batchOpen && (

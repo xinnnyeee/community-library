@@ -408,7 +408,9 @@ function BatchUploadDialog({
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [draggingPage, setDraggingPage] = useState<number | null>(null);
-  // Full-size cover preview shown as a click-to-dismiss overlay, independent
+  // Full-size cover preview, dismissed via its own close button (not a
+  // backdrop click - the overlay's <img> is a natively-draggable element,
+  // and a click that jitters into a drag never fires onClick). Independent
   // of drag state - lets you check a scanned page is legible/right-side-up
   // without having to assign it to a book first.
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -736,15 +738,21 @@ function BatchUploadDialog({
       </Dialog>
 
       {previewImage && (
-        <div
-          className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/80 p-8"
-          onClick={() => setPreviewImage(null)}
-        >
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-8">
           <img
             src={previewImage}
             alt="Cover preview"
+            draggable={false}
             className="max-h-full max-w-full rounded shadow-2xl"
           />
+          <button
+            type="button"
+            onClick={() => setPreviewImage(null)}
+            aria-label="Close preview"
+            className="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <X className="size-5" />
+          </button>
         </div>
       )}
     </>

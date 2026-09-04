@@ -408,11 +408,13 @@ function BatchUploadDialog({
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [draggingPage, setDraggingPage] = useState<number | null>(null);
-  // Full-size cover preview, dismissed via its own close button (not a
-  // backdrop click - the overlay's <img> is a natively-draggable element,
-  // and a click that jitters into a drag never fires onClick). Independent
-  // of drag state - lets you check a scanned page is legible/right-side-up
-  // without having to assign it to a book first.
+  // Full-size cover preview - rendered as its own nested Dialog (see below)
+  // rather than a hand-rolled overlay, specifically so Radix's own layering
+  // handles "close the preview without also dismissing the batch-upload
+  // dialog underneath it" for free: an outside click/Escape only ever
+  // dismisses the topmost open Dialog. Independent of drag state - lets you
+  // check a scanned page is legible/right-side-up without having to assign
+  // it to a book first.
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // Renders a newly-chosen PDF's pages (numbered to continue on from any
@@ -576,18 +578,7 @@ function BatchUploadDialog({
             and the unused-pages tray + footer stay pinned at the bottom,
             always visible and always a valid drop target without having to
             scroll down to reach it. */}
-        <DialogContent
-          className="flex h-[85vh] max-w-2xl flex-col overflow-hidden"
-          onPointerDownOutside={(e) => {
-            // The preview overlay renders outside DialogContent (so it can
-            // cover the whole viewport, not just the dialog), which makes
-            // Radix treat a click on it - even just on its close button -
-            // as an "outside" interaction that closes this whole dialog.
-            // Swallow that while the preview is up so closing the preview
-            // doesn't also close the batch-upload dialog underneath it.
-            if (previewImage) e.preventDefault();
-          }}
-        >
+        <DialogContent className="flex h-[85vh] max-w-2xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>Batch upload covers</DialogTitle>
           </DialogHeader>
@@ -748,24 +739,27 @@ function BatchUploadDialog({
         </DialogContent>
       </Dialog>
 
-      {previewImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-8">
-          <img
-            src={previewImage}
-            alt="Cover preview"
-            draggable={false}
-            className="max-h-full max-w-full rounded shadow-2xl"
-          />
-          <button
-            type="button"
-            onClick={() => setPreviewImage(null)}
-            aria-label="Close preview"
-            className="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-      )}
+      {/* A separate, nested Dialog rather than a plain overlay div: Radix
+          tracks open Dialogs as stacked layers, and an outside click or
+          Escape only ever dismisses the topmost one - so this can reuse
+          Dialog's built-in close button and get "closing the preview
+          doesn't also close the batch-upload dialog" for free, instead of
+          fighting Radix's outside-interaction detection by hand. */}
+      <Dialog
+        open={previewImage !== null}
+        onOpenChange={(open) => !open && setPreviewImage(null)}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogTitle className="sr-only">Cover preview</DialogTitle>
+          {previewImage && (
+            <img
+              src={previewImage}
+              alt="Cover preview"
+              className="max-h-[75vh] w-full rounded object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

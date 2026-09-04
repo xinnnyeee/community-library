@@ -562,7 +562,14 @@ function BatchUploadDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && !uploading && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      {/* flex-col + a capped height turns this into a fixed-height shell:
+          the header, file-picker row and warning stay put, the book list
+          in the middle is the only part that scrolls (min-h-0 is required
+          for a flex child to actually shrink and scroll instead of just
+          growing the whole dialog), and the unused-pages tray + footer
+          stay pinned at the bottom, always visible and always a valid
+          drop target without having to scroll down to reach it. */}
+      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Batch upload covers</DialogTitle>
           <DialogDescription>
@@ -575,147 +582,145 @@ function BatchUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf"
-              disabled={rendering}
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileSelected(file);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={rendering}
-            >
-              {rendering
-                ? "Rendering..."
-                : pages.length === 0
-                  ? "Choose file"
-                  : "Upload more covers"}
-            </Button>
-            {pages.length > 0 && (
-              <span className="text-muted-foreground text-xs">
-                {pages.length} page{pages.length === 1 ? "" : "s"} loaded
-              </span>
-            )}
-          </div>
-
-          {pages.length > 0 && pages.length !== books.length && (
-            <p className="text-sm text-amber-600">
-              {pages.length} page{pages.length === 1 ? "" : "s"} loaded,{" "}
-              {books.length} book{books.length === 1 ? "" : "s"} selected -{" "}
-              {pages.length > books.length
-                ? `${pages.length - books.length} extra page(s) are left unused below.`
-                : `${books.length - pages.length} book(s) below won't get a page unless you drag one in.`}
-            </p>
-          )}
-
-          <div className="space-y-2">
-            {books.map((book, index) => {
-              const pageNumber = slots[index];
-              const page =
-                pageNumber != null
-                  ? pages.find((p) => p.pageNumber === pageNumber)
-                  : undefined;
-              return (
-                <div
-                  key={book.isbn}
-                  className="flex items-center gap-3 rounded-md border p-2"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDropOnBook(index)}
-                >
-                  <div className="bg-muted relative flex h-20 w-14 shrink-0 items-center justify-center overflow-hidden rounded">
-                    {page ? (
-                      <>
-                        <img
-                          src={page.previewUrl}
-                          draggable
-                          onDragStart={() => setDraggingPage(page.pageNumber)}
-                          alt={`Page ${page.pageNumber}`}
-                          className="h-full w-full cursor-grab object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeAt(index);
-                          }}
-                          className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-gray-500 text-white shadow hover:bg-gray-600"
-                          aria-label="Send this cover back to unused"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground px-1 text-center text-[10px]">
-                        drop page here
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {book.title}
-                    </p>
-                    <p className="text-muted-foreground truncate text-xs">
-                      {book.isbn}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div
-            className="rounded-md border border-dashed p-2"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDropOnTray}
+        <div className="flex shrink-0 items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            disabled={rendering}
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileSelected(file);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={rendering}
           >
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-muted-foreground text-xs">
-                Unused pages ({unusedPages.length}) - drag one onto a book
-                above to use it
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={unusedPages.length === 0}
-                onClick={exportUnusedAsPdf}
-              >
-                Export as PDF
-              </Button>
-            </div>
-            <div className="flex min-h-24 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-              {unusedPages.length === 0 ? (
-                <p className="text-muted-foreground px-1 text-xs">
-                  No unused pages
-                </p>
-              ) : (
-                unusedPages.map((page) => (
-                  <img
-                    key={page.pageNumber}
-                    src={page.previewUrl}
-                    draggable
-                    onDragStart={() => setDraggingPage(page.pageNumber)}
-                    alt={`Page ${page.pageNumber}`}
-                    className="h-20 w-14 shrink-0 cursor-grab rounded object-cover"
-                  />
-                ))
-              )}
-            </div>
-          </div>
-
-          {uploading && <Progress value={progress} />}
+            {rendering
+              ? "Rendering..."
+              : pages.length === 0
+                ? "Choose file"
+                : "Upload more covers"}
+          </Button>
+          {pages.length > 0 && (
+            <span className="text-muted-foreground text-xs">
+              {pages.length} page{pages.length === 1 ? "" : "s"} loaded
+            </span>
+          )}
         </div>
 
-        <DialogFooter>
+        {pages.length > 0 && pages.length !== books.length && (
+          <p className="shrink-0 text-sm text-amber-600">
+            {pages.length} page{pages.length === 1 ? "" : "s"} loaded,{" "}
+            {books.length} book{books.length === 1 ? "" : "s"} selected -{" "}
+            {pages.length > books.length
+              ? `${pages.length - books.length} extra page(s) are left unused below.`
+              : `${books.length - pages.length} book(s) below won't get a page unless you drag one in.`}
+          </p>
+        )}
+
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto py-1 pr-1">
+          {books.map((book, index) => {
+            const pageNumber = slots[index];
+            const page =
+              pageNumber != null
+                ? pages.find((p) => p.pageNumber === pageNumber)
+                : undefined;
+            return (
+              <div
+                key={book.isbn}
+                className="flex items-center gap-3 rounded-md border p-2"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDropOnBook(index)}
+              >
+                <div className="bg-muted relative flex h-20 w-14 shrink-0 items-center justify-center overflow-hidden rounded">
+                  {page ? (
+                    <>
+                      <img
+                        src={page.previewUrl}
+                        draggable
+                        onDragStart={() => setDraggingPage(page.pageNumber)}
+                        alt={`Page ${page.pageNumber}`}
+                        className="h-full w-full cursor-grab object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeAt(index);
+                        }}
+                        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-gray-500 text-white shadow hover:bg-gray-600"
+                        aria-label="Send this cover back to unused"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground px-1 text-center text-[10px]">
+                      drop page here
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {book.title}
+                  </p>
+                  <p className="text-muted-foreground truncate text-xs">
+                    {book.isbn}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div
+          className="shrink-0 rounded-md border border-dashed p-2"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDropOnTray}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-muted-foreground text-xs">
+              Unused pages ({unusedPages.length}) - drag one onto a book
+              above to use it
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={unusedPages.length === 0}
+              onClick={exportUnusedAsPdf}
+            >
+              Export as PDF
+            </Button>
+          </div>
+          <div className="flex min-h-24 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+            {unusedPages.length === 0 ? (
+              <p className="text-muted-foreground px-1 text-xs">
+                No unused pages
+              </p>
+            ) : (
+              unusedPages.map((page) => (
+                <img
+                  key={page.pageNumber}
+                  src={page.previewUrl}
+                  draggable
+                  onDragStart={() => setDraggingPage(page.pageNumber)}
+                  alt={`Page ${page.pageNumber}`}
+                  className="h-20 w-14 shrink-0 cursor-grab rounded object-cover"
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {uploading && <Progress value={progress} className="shrink-0" />}
+
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={onClose} disabled={uploading}>
             Cancel
           </Button>

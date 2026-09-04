@@ -12,7 +12,13 @@ import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { client } from "@/lib/api-client";
 import { resizeCanvasToWebp, resizeImageToWebp } from "@/lib/cover-image";
-import { renderPdfPages, type PdfPage } from "@/lib/pdf-pages";
+import {
+  buildPdfFromCanvases,
+  downloadBlob,
+  renderPdfPages,
+  type PdfPage,
+} from "@/lib/pdf-pages";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -374,7 +380,18 @@ function CoverCard({
   );
 }
 
-type Assignments = Record<string, number | null>;
+/**
+ * One slot per selected book, in the same order as `books` - `null` means
+ * that book doesn't have a page assigned yet. This is a plain positional
+ * array (not keyed by isbn) specifically so removing or inserting a page
+ * can "cascade": splicing a slot out shifts every later slot up by one,
+ * and splicing a page in shifts every later slot down by one (bumping
+ * whatever was in the last slot back into the unused tray). That matches
+ * how you'd expect a stack of covers to behave - pull one out, and
+ * everything below moves up to close the gap; drop one in, and everything
+ * below shuffles down to make room.
+ */
+type PageSlots = (number | null)[];
 
 function BatchUploadDialog({
   books,
@@ -385,25 +402,42 @@ function BatchUploadDialog({
   onClose: () => void;
   onUploaded: (results: { isbn: string; blob: Blob }[]) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [pages, setPages] = useState<PdfPage[]>([]);
-  const [assignments, setAssignments] = useState<Assignments>({});
+  const [slots, setSlots] = useState<PageSlots>(() => books.map(() => null));
   const [rendering, setRendering] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [draggingPage, setDraggingPage] = useState<number | null>(null);
 
+  // Renders a newly-chosen PDF's pages (numbered to continue on from any
+  // already loaded, so page numbers stay unique across multiple uploads),
+  // then auto-fills them into whichever book slots are still empty, in
+  // order - anything left over just isn't referenced by any slot, so it
+  // shows up in the unused tray automatically. Can be called again later
+  // to add more covers on top of an already-in-progress batch.
   async function handleFileSelected(file: File) {
     setRendering(true);
     try {
       const rendered = await renderPdfPages(file);
-      setPages(rendered);
+      const offset = pages.length;
+      const renumbered = rendered.map((p, i) => ({
+        ...p,
+        pageNumber: offset + i + 1,
+      }));
+      setPages((prev) => [...prev, ...renumbered]);
 
-      // Auto-align: the Nth selected book gets the Nth page, in order.
-      const initial: Assignments = {};
-      books.forEach((book, i) => {
-        initial[book.isbn] = rendered[i]?.pageNumber ?? null;
+      setSlots((prev) => {
+        const next = [...prev];
+        let i = 0;
+        for (let slot = 0; slot < next.length && i < renumbered.length; slot++) {
+          if (next[slot] === null) {
+            next[slot] = renumbered[i].pageNumber;
+            i++;
+          }
+        }
+        return next;
       });
-      setAssignments(initial);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't read that PDF");
     } finally {
@@ -411,48 +445,58 @@ function BatchUploadDialog({
     }
   }
 
-  const assignedPageNumbers = new Set(
-    Object.values(assignments).filter((p): p is number => p !== null),
-  );
-  const unusedPages = pages.filter(
-    (p) => !assignedPageNumbers.has(p.pageNumber),
-  );
-  const assignedCount = Object.values(assignments).filter(
-    (p) => p !== null,
-  ).length;
+  const unusedPages = pages.filter((p) => !slots.includes(p.pageNumber));
+  const assignedCount = slots.filter((p) => p !== null).length;
 
-  function findAssignedIsbn(pageNumber: number): string | undefined {
-    return Object.entries(assignments).find(
-      ([, p]) => p === pageNumber,
-    )?.[0];
-  }
-
-  function handleDropOnBook(targetIsbn: string) {
-    if (draggingPage === null) return;
-    const sourceIsbn = findAssignedIsbn(draggingPage);
-
-    setAssignments((prev) => {
-      const next = { ...prev };
-      const displaced = next[targetIsbn] ?? null;
-      next[targetIsbn] = draggingPage;
-      // Swap rather than duplicate: whatever page was at the target moves
-      // to wherever the dragged page came from (a no-op if it came from
-      // the unused tray).
-      if (sourceIsbn && sourceIsbn !== targetIsbn) {
-        next[sourceIsbn] = displaced;
-      }
+  /** Removes whatever page is in `index`, cascading every later slot up by one. */
+  function removeAt(index: number) {
+    setSlots((prev) => {
+      const next = [...prev];
+      next.splice(index, 1);
+      next.push(null);
       return next;
     });
+  }
+
+  /**
+   * Puts `pageNumber` into `index`, cascading `index` and everything after
+   * it down by one slot (the previous last slot falls off into unused). If
+   * the page was already sitting in another slot, it's moved from there
+   * first - so dragging one book's cover onto another reorders rather than
+   * duplicating it.
+   */
+  function insertAt(index: number, pageNumber: number) {
+    setSlots((prev) => {
+      const sourceIndex = prev.indexOf(pageNumber);
+      const withoutSource =
+        sourceIndex === -1
+          ? [...prev]
+          : prev.filter((_, i) => i !== sourceIndex);
+      const adjustedIndex =
+        sourceIndex !== -1 && sourceIndex < index ? index - 1 : index;
+      withoutSource.splice(adjustedIndex, 0, pageNumber);
+      if (withoutSource.length > prev.length) withoutSource.pop();
+      return withoutSource;
+    });
+  }
+
+  function handleDropOnBook(index: number) {
+    if (draggingPage === null) return;
+    insertAt(index, draggingPage);
     setDraggingPage(null);
   }
 
   function handleDropOnTray() {
     if (draggingPage === null) return;
-    const sourceIsbn = findAssignedIsbn(draggingPage);
-    if (sourceIsbn) {
-      setAssignments((prev) => ({ ...prev, [sourceIsbn]: null }));
-    }
+    const sourceIndex = slots.indexOf(draggingPage);
+    if (sourceIndex !== -1) removeAt(sourceIndex);
     setDraggingPage(null);
+  }
+
+  function exportUnusedAsPdf() {
+    if (unusedPages.length === 0) return;
+    const blob = buildPdfFromCanvases(unusedPages.map((p) => p.canvas));
+    downloadBlob(blob, `unused-covers-${new Date().toISOString().slice(0, 10)}.pdf`);
   }
 
   async function handleConfirm() {
@@ -460,7 +504,7 @@ function BatchUploadDialog({
     setProgress(0);
 
     const toUpload = books
-      .map((book) => ({ book, pageNumber: assignments[book.isbn] }))
+      .map((book, i) => ({ book, pageNumber: slots[i] }))
       .filter(
         (x): x is { book: CoverlessBook; pageNumber: number } =>
           x.pageNumber !== null,
@@ -522,59 +566,74 @@ function BatchUploadDialog({
         <DialogHeader>
           <DialogTitle>Batch upload covers</DialogTitle>
           <DialogDescription>
-            Upload one PDF with a scanned cover on each page. Pages are
-            matched to the {books.length} selected book
-            {books.length === 1 ? "" : "s"} in order by default - drag a page
-            onto a different book to rearrange before confirming.
+            Upload one or more PDFs, each with a scanned cover per page. New
+            pages fill any book below that doesn't have a cover yet, in
+            order - drag a page onto a book to place it there (everything
+            below cascades down to make room), or click the × on a cover to
+            send it back to unused (everything below cascades up to close
+            the gap).
           </DialogDescription>
         </DialogHeader>
 
-        {pages.length === 0 ? (
-          <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
             <input
+              ref={fileInputRef}
               type="file"
               accept="application/pdf"
               disabled={rendering}
+              className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleFileSelected(file);
+                e.target.value = "";
               }}
             />
-            {rendering && (
-              <p className="text-muted-foreground text-sm">
-                Rendering pages...
-              </p>
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={rendering}
+            >
+              {rendering
+                ? "Rendering..."
+                : pages.length === 0
+                  ? "Choose file"
+                  : "Upload more covers"}
+            </Button>
+            {pages.length > 0 && (
+              <span className="text-muted-foreground text-xs">
+                {pages.length} page{pages.length === 1 ? "" : "s"} loaded
+              </span>
             )}
           </div>
-        ) : (
-          <div className="space-y-4">
-            {pages.length !== books.length && (
-              <p className="text-sm text-amber-600">
-                {pages.length} page{pages.length === 1 ? "" : "s"} in the
-                PDF, {books.length} book{books.length === 1 ? "" : "s"}{" "}
-                selected -{" "}
-                {pages.length > books.length
-                  ? `${pages.length - books.length} extra page(s) are left unused below.`
-                  : `${books.length - pages.length} book(s) below won't get a page unless you drag one in.`}
-              </p>
-            )}
 
-            <div className="space-y-2">
-              {books.map((book) => {
-                const pageNumber = assignments[book.isbn];
-                const page =
-                  pageNumber != null
-                    ? pages.find((p) => p.pageNumber === pageNumber)
-                    : undefined;
-                return (
-                  <div
-                    key={book.isbn}
-                    className="flex items-center gap-3 rounded-md border p-2"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => handleDropOnBook(book.isbn)}
-                  >
-                    <div className="bg-muted flex h-20 w-14 shrink-0 items-center justify-center overflow-hidden rounded">
-                      {page ? (
+          {pages.length > 0 && pages.length !== books.length && (
+            <p className="text-sm text-amber-600">
+              {pages.length} page{pages.length === 1 ? "" : "s"} loaded,{" "}
+              {books.length} book{books.length === 1 ? "" : "s"} selected -{" "}
+              {pages.length > books.length
+                ? `${pages.length - books.length} extra page(s) are left unused below.`
+                : `${books.length - pages.length} book(s) below won't get a page unless you drag one in.`}
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {books.map((book, index) => {
+              const pageNumber = slots[index];
+              const page =
+                pageNumber != null
+                  ? pages.find((p) => p.pageNumber === pageNumber)
+                  : undefined;
+              return (
+                <div
+                  key={book.isbn}
+                  className="flex items-center gap-3 rounded-md border p-2"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleDropOnBook(index)}
+                >
+                  <div className="bg-muted relative flex h-20 w-14 shrink-0 items-center justify-center overflow-hidden rounded">
+                    {page ? (
+                      <>
                         <img
                           src={page.previewUrl}
                           draggable
@@ -582,67 +641,92 @@ function BatchUploadDialog({
                           alt={`Page ${page.pageNumber}`}
                           className="h-full w-full cursor-grab object-cover"
                         />
-                      ) : (
-                        <span className="text-muted-foreground px-1 text-center text-[10px]">
-                          drop page here
-                        </span>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {book.title}
-                      </p>
-                      <p className="text-muted-foreground truncate text-xs">
-                        {book.isbn}
-                      </p>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeAt(index);
+                          }}
+                          className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-gray-500 text-white shadow hover:bg-gray-600"
+                          aria-label="Send this cover back to unused"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground px-1 text-center text-[10px]">
+                        drop page here
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-
-            {unusedPages.length > 0 && (
-              <div
-                className="rounded-md border border-dashed p-2"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDropOnTray}
-              >
-                <p className="text-muted-foreground mb-2 text-xs">
-                  Unused pages - drag one onto a book above to use it
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {unusedPages.map((page) => (
-                    <img
-                      key={page.pageNumber}
-                      src={page.previewUrl}
-                      draggable
-                      onDragStart={() => setDraggingPage(page.pageNumber)}
-                      alt={`Page ${page.pageNumber}`}
-                      className="h-20 w-14 cursor-grab rounded object-cover"
-                    />
-                  ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {book.title}
+                    </p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {book.isbn}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {uploading && <Progress value={progress} />}
+              );
+            })}
           </div>
-        )}
+
+          <div
+            className="rounded-md border border-dashed p-2"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDropOnTray}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-muted-foreground text-xs">
+                Unused pages ({unusedPages.length}) - drag one onto a book
+                above to use it
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={unusedPages.length === 0}
+                onClick={exportUnusedAsPdf}
+              >
+                Export as PDF
+              </Button>
+            </div>
+            <div className="flex min-h-24 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+              {unusedPages.length === 0 ? (
+                <p className="text-muted-foreground px-1 text-xs">
+                  No unused pages
+                </p>
+              ) : (
+                unusedPages.map((page) => (
+                  <img
+                    key={page.pageNumber}
+                    src={page.previewUrl}
+                    draggable
+                    onDragStart={() => setDraggingPage(page.pageNumber)}
+                    alt={`Page ${page.pageNumber}`}
+                    className="h-20 w-14 shrink-0 cursor-grab rounded object-cover"
+                  />
+                ))
+              )}
+            </div>
+          </div>
+
+          {uploading && <Progress value={progress} />}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={uploading}>
             Cancel
           </Button>
-          {pages.length > 0 && (
-            <Button
-              onClick={handleConfirm}
-              disabled={uploading || assignedCount === 0}
-            >
-              {uploading
-                ? "Uploading..."
-                : `Upload ${assignedCount} cover${assignedCount === 1 ? "" : "s"}`}
-            </Button>
-          )}
+          <Button
+            onClick={handleConfirm}
+            disabled={uploading || assignedCount === 0}
+          >
+            {uploading
+              ? "Uploading..."
+              : `Upload ${assignedCount} cover${assignedCount === 1 ? "" : "s"}`}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
